@@ -1,135 +1,217 @@
-import numpy as np, time
+import numpy as np, time, matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from .base_algorithm import beam_search, get_rules, show_rules, get_sets
+from .mbs import beam_search, get_rules, show_rules, get_sets
 
 # This file is inspired by https://github.com/marcotcr/anchor
 
 def kl_bernoulli(p, q):
-    p = min(0.9999999999999999, max(0.0000001, p))
-    q = min(0.9999999999999999, max(0.0000001, q))
-    return (p * np.log(float(p) / q) + (1 - p) *
-            np.log(float(1 - p) / (1 - q)))
+    p = np.clip(p, 1e-10, 1 - 1e-10)
+    q = np.clip(q, 1e-10, 1 - 1e-10)
+    return (p * np.log(p / q) + (1 - p) * np.log((1 - p) / (1 - q)))
 
-def dup_bernoulli(p, level):
-    lm = p
-    um = min(min(1, p + np.sqrt(level / 2.)), 1)
-    qm = (um + lm) / 2.
-    if kl_bernoulli(p, qm) > level:
-        um = qm
-    else:
-        lm = qm
-    return um
+def dup_bernoulli(mean, var, n, beta, max_iter=20, tol=1e-4):
+    # print(f"{mean=}, {var=}, {n=}, {beta=}, {max_iter=}, {tol=}")
+    level = beta / n
+    valid_ub = (level > 0) & (mean < 1 - tol)
+    ub = np.ones_like(mean)
 
-def dlow_bernoulli(p, level):
-    um = p
-    lm = max(min(1, p - np.sqrt(level / 2.)), 0)
-    qm = (um + lm) / 2.
-    if kl_bernoulli(p, qm) > level:
-        lm = qm
-    else:
-        um = qm
-    return lm
+    if np.any(valid_ub):
+        lm_ub = mean[valid_ub].copy()
+        um_ub = np.minimum(1.0, mean[valid_ub] + np.sqrt(level[valid_ub] / 2.))
+    
+        for _ in range(max_iter):
+            qm = (um_ub + lm_ub) / 2.0
+            kl = kl_bernoulli(mean[valid_ub], qm)
+            above = kl > level[valid_ub]
+            um_ub = np.where(above, qm, um_ub)
+            lm_ub = np.where(above, lm_ub, qm)
+            
+            if np.all((um_ub - lm_ub) < tol):
+                break
+        ub[valid_ub] = um_ub
+    return ub
 
-def compute_beta(n_features, t):
-    delta = .1
-    alpha = 1.1
-    k = 405.5
-    temp = np.log(k * n_features * (t ** alpha) / delta)
-    return temp + np.log(temp)
-
-
-def lucb(simulation, rules, beam_size, a=.05, beam_eps=.1, cause_eps=.01, non_cause_esp=.01, 
-         max_iter=200, verbose=1, batch_size=10, lucb_infos=None):
+def dlow_bernoulli(mean, var, n, beta, max_iter=20, tol=1e-4):
+    level = beta / n
+    valid_lb = (level > 0) & (mean > tol)
+    lb = np.zeros_like(mean)
+    
+    if np.any(valid_lb):
+        um_lb = mean[valid_lb].copy()
+        lm_lb = np.maximum(0.0, mean[valid_lb] - np.sqrt(level[valid_lb] / 2.))
         
+        for _ in range(max_iter):
+            qm = (um_lb + lm_lb) / 2.0
+            kl = kl_bernoulli(mean[valid_lb], qm)
+            above = kl > level[valid_lb]
+            lm_lb = np.where(above, qm, lm_lb)
+            um_lb = np.where(above, um_lb, qm)
+            
+            if np.all((um_lb - lm_lb) < tol):
+                break
+        lb[valid_lb] = lm_lb
+    return lb
+
+def hoeffding_upper_bound(mean, var, n, beta):
+    ub = mean + np.sqrt(beta / (2 * n))
+    ub = np.minimum(1.0, ub)
+    return ub
+
+def hoeffding_lower_bound(mean, var, n, beta):
+    lb = mean - np.sqrt(beta / (2 * n))
+    lb = np.maximum(0.0, lb)
+    return lb
+
+def bernstein_lower_bound(mean, var, n, beta):
+    eps = np.sqrt(2 * var * beta / n) + 2 * beta / (3 * n)
+    return np.maximum(0.0, mean - eps)
+
+def bernstein_upper_bound(mean, var, n, beta):
+    eps = np.sqrt(2 * var * beta / n) + 2 * beta / (3 * n)
+    return np.minimum(1.0, mean + eps)
+
+def compute_beta_exact(n_arms, t, delta=0.1):
+    return np.log(2 * n_arms * t**2 / delta)
+
+def compute_beta_practical(n_arms, t, delta=0.1):
+    return np.log(2 * n_arms / delta)
+
+def compute_beta_usable(n_arms, t, delta=0.1):
+    return np.log(2 / delta)
+
+compute_beta = compute_beta_usable
+
+def update_bound(stats, fnt, bound_id, arm_ids, mean_id, variance_id, n_id, beta):
+    var = stats[variance_id,arm_ids] if variance_id is not None else None
+    stats[bound_id, arm_ids] = fnt(stats[mean_id,arm_ids], var, stats[n_id,arm_ids], beta)
+
+
+def lucb(evaluator, rules, beam_size, a=.05, beam_eps=.1, cause_eps=.01, non_cause_eps=.01, 
+         max_iter=200, verbose=0, batch_size=10, init_batch_size=20, lucb_info=None, delta=.1):
+
+    init_batch_size = max(1, init_batch_size)
     n_arms = len(rules) # Doing armed bandits with the rules to evaluate
-    # For each arm we keep track of the number of samples, the number of success, the upper bound and the lower bound
-    positives, scores, lb, means, mean_scores = np.zeros((5, n_arms))
-    ub = np.ones(n_arms)
-    n_samples = np.zeros(n_arms, dtype=int)
-    beta = 0
+
+    n_stats = 9
+    phi_m, phi_ub, phi_lb, psi_m, psi_v, psi_M2, psi_ub, psi_lb, n = range(n_stats)
+    stats = np.zeros((n_stats,n_arms), dtype=float) 
+    stats[phi_ub] = 1.0
+    stats[psi_ub] = 1.0
+    
+    beta_phi = 0
+    beta_psi = 0
     
     # Utils function
-    def action_arm(arm):
-        for _ in range(batch_size):
-            _, label, score = simulation(rules[arm])
-            positives[arm] += label
-            scores[arm] += score
-        n_samples[arm] += batch_size
-        means[arm] = positives[arm] / n_samples[arm]
-        mean_scores[arm] = scores[arm] / n_samples[arm]
-
-    def update_bounds_beam(t):
-        bs = beam_size + (means < a).sum()
-        sorted_rule_ids = sorted(range(n_arms), key = lambda i: (means[i],mean_scores[i]))
-        
-        beam_ids = sorted_rule_ids[:bs]
-        non_beam_ids = sorted_rule_ids[bs:]
-        # print(f"{beam_ids=} / {non_beam_ids=}")
-        if not beam_ids or not non_beam_ids: return 0
-        for i in beam_ids:
-            ub[i] = dup_bernoulli(means[i], beta / n_samples[i])
-        for i in non_beam_ids:
-            lb[i] = dlow_bernoulli(means[i], beta / n_samples[i])
+    def action_arms(arms, bs=batch_size):
+        # Compute values
+        E = [rules[arm] for arm in arms]
+        if not len(E): return
+        values_batchs = evaluator(E, bs)
+        values_batchs = values_batchs.reshape(len(E), bs, -1)
+        for arm, values_batch in zip(arms, values_batchs):
+            # Update n 
+            n_old = stats[n,arm]
+            stats[n,arm] += bs
+            # Compute batch stats
+            mean_batch = np.mean(values_batch, axis=0)
+            M2_batch = np.sum((values_batch[:,1] - mean_batch[1])**2) # Compute M2 only for psi
+            # Update phi
+            stats[phi_m,arm] += (mean_batch[0] - stats[phi_m, arm]) * bs / stats[n,arm]
+            # Update psi
+            stats[psi_m,arm] += (mean_batch[1] - stats[psi_m, arm]) * bs / stats[n,arm]
+            delta = mean_batch[1] - stats[psi_m, arm]
+            stats[psi_m,arm] += delta * bs / stats[n,arm]
+            stats[psi_M2,arm] += M2_batch + delta**2 * n_old * bs / stats[n,arm]
+            stats[psi_v,arm] = stats[psi_M2,arm] / stats[n,arm]
             
-        ut = beam_ids[np.argmax(ub[beam_ids])]
-        lt = non_beam_ids[np.argmin(lb[non_beam_ids])]
-        B = ub[ut] - lb[lt]
-        if B >= beam_eps:
-            action_arm(ut)
-            action_arm(lt)
-        return B
-
-    def update_bounds_non_cause(t):
-        ids = np.argwhere(means >= a).flatten()
-        # print(f"non cause: {ids=}")
-        for i in ids:
-            lb[i] = dlow_bernoulli(means[i], beta / n_samples[i])
-        if not ids.size: return 0
-        lt = ids[np.argmin(lb[ids])]
-        B = a - lb[lt]
-        if B >= non_cause_esp:
-            action_arm(lt)
-        return B
-
-    def update_bounds_cause(t):
-        ids = np.argwhere(means < a).flatten()
-        # print(f"cause: {ids=}")
-        for i in ids:
-            ub[i] = dup_bernoulli(means[i], beta / n_samples[i])
-        if not ids.size: return 0
-        ut = ids[np.argmax(ub[ids])]
-        B = ub[ut] - a
-        if B >= cause_eps:
-            action_arm(ut)
-        return B
+    def find_unsure_arms():
+        cancel_ids = stats[phi_m] < a
+        # Cause candidates
+        cause_ids = np.argwhere(cancel_ids).flatten()
+        if not cause_ids.size:
+            cause_overlap = np.array([], dtype=int)
+        else:
+            ids_overlapping = stats[phi_ub, cause_ids] >= a + cause_eps
+            cause_overlap = cause_ids[ids_overlapping]
+        # Non-cause candidates
+        non_cause_ids = np.argwhere(~cancel_ids).flatten()
+        if not non_cause_ids.size:
+            non_cause_overlap = np.array([], dtype=int)
+        else:
+            ids_overlapping = stats[phi_lb, non_cause_ids] <= a - non_cause_eps
+            non_cause_overlap = non_cause_ids[ids_overlapping]
+        # Beam overlap
+        sorted_non_cause_ids = sorted(non_cause_ids, key = lambda i: stats[psi_m,i])
+        beam_ids = np.array(sorted_non_cause_ids[:beam_size])
+        non_beam_ids = np.array(sorted_non_cause_ids[beam_size:])
+        if not non_beam_ids.size or not beam_ids.size:
+            return cause_overlap, non_cause_overlap, np.array([], dtype=int), np.array([], dtype=int)
+        ut = beam_ids[np.argmax(stats[psi_ub,beam_ids])]
+        lt = non_beam_ids[np.argmin(stats[psi_lb,non_beam_ids])]
+        # Beam candidates: overlap if the upper bound in the beam is higher than the lower bound outside the beam
+        ids_overlapping = stats[psi_ub, beam_ids] >= stats[psi_lb, lt] + beam_eps  
+        beam_overlap = beam_ids[ids_overlapping]
+        # Non-beam candidates: overlap if the lower bound outside the beam is lower than the upper bound in the beam
+        ids_overlapping = stats[psi_lb, non_beam_ids] <= stats[psi_ub, ut] - beam_eps
+        nonbeam_overlap = non_beam_ids[ids_overlapping]
+        return cause_overlap, non_cause_overlap, beam_overlap, nonbeam_overlap
     
     # Initialization
     beam_bound = 1
     cause_bound = 1
     non_cause_bound = 1
-    for arm in tqdm(range(n_arms), disable=not verbose):
-        action_arm(arm)
+    
     it = 1
     # Loop
     with tqdm(total=n_arms * max_iter, disable=not verbose) as pbar:
-        while n_samples.sum() < n_arms * max_iter:
+        while stats[n].sum() < n_arms * max_iter:
+            beta = compute_beta(n_arms, it, delta)
+            # Check necessary arms
+            unsure_arms = find_unsure_arms()
+            cause_overlap, non_cause_overlap, beam_overlap, nonbeam_overlap = unsure_arms
+            
+            if verbose:
+                print(f"cause: {len(cause_overlap)}, non cause: {len(non_cause_overlap)}, beam: {len(beam_overlap)}, non beam: {len(nonbeam_overlap)}, ")
+            
+            # Pull arms
+            action_arms(
+                np.unique(np.hstack(unsure_arms)), 
+                init_batch_size if it == 1 else batch_size
+            )
+            # Update bounds
+            # Compute the upper and lower bound for psi of everyone after the first batch to stabilize computations
+            if True:#it == 1: 
+                update_bound(stats, bernstein_upper_bound, psi_ub, np.arange(n_arms),   psi_m, psi_v, n, beta)
+                update_bound(stats, bernstein_lower_bound, psi_lb, np.arange(n_arms),   psi_m, psi_v, n, beta)
+            else:
+                update_bound(stats, bernstein_upper_bound, psi_ub, beam_overlap,      psi_m, psi_v, n, beta)
+                update_bound(stats, bernstein_lower_bound, psi_lb, nonbeam_overlap,   psi_m, psi_v, n, beta)
+            nonbeam_overlap = np.arange(n_arms)
+            update_bound(stats, dup_bernoulli,         phi_ub, cause_overlap,     phi_m, None,  n, beta)
+            update_bound(stats, dlow_bernoulli,        phi_lb, non_cause_overlap, phi_m, None,  n, beta)
+            
+            # Compute remaining overlap
+            if not beam_overlap.size or not nonbeam_overlap.size: beam_bound = 0
+            else: beam_bound = stats[psi_ub,beam_overlap].max() - stats[psi_lb,nonbeam_overlap].min()
+                
+            if not cause_overlap.size: cause_bound = 0
+            else: cause_bound = stats[phi_ub,cause_overlap].max() - a
+                
+            if not non_cause_overlap.size: non_cause_bound = 0
+            else: non_cause_bound = a - stats[phi_lb,non_cause_overlap].min()
+            
             # Stop condition
-            if beam_bound <= beam_eps and cause_bound <= cause_eps and non_cause_bound <= non_cause_esp: 
+            if beam_bound <= beam_eps and cause_bound <= cause_eps and non_cause_bound <= non_cause_eps: 
                 if verbose > 1: 
                     print(f"Success: {beam_bound=:.4f} / {cause_bound=:.4f} / {non_cause_bound=:.4f})")
                 break
-            if cause_bound <= cause_eps and non_cause_bound <= non_cause_esp and beam_size + (means < a).sum() >= n_arms:
+            if cause_bound <= cause_eps and non_cause_bound <= non_cause_eps and (beam_size + (stats[phi_m] < a).sum()) >= n_arms:
                 if verbose > 1:
                     print(f"All rules pass on to next state: {cause_bound=:.4f}, {non_cause_bound=:.4f}")
                 break
-                
-            # Update bounds
-            beta = compute_beta(n_arms, it)
-            beam_bound = update_bounds_beam(it)
-            cause_bound = update_bounds_cause(it)
-            non_cause_bound = update_bounds_non_cause(it)
-            pbar.n = n_samples.sum()
+            
+            pbar.n = stats[n].sum()
             pbar.refresh()
             it += 1
         else:
@@ -138,21 +220,14 @@ def lucb(simulation, rules, beam_size, a=.05, beam_eps=.1, cause_eps=.01, non_ca
                 print(f"Fail: {beam_bound=:.4f} / {cause_bound=:.4f} / {non_cause_bound=:.4f}")
             
     if verbose > 2:
-        print(f"ub={ub.round(4)}")
-        print(f"lb={lb.round(4)}")
-        print(f"preds={means.round(2)}")
-        print(f"n_samples={n_samples}")
-    if lucb_infos is not None:
-        lucb_infos.append({
-            "n_calls": int(n_samples.sum())
-        })
-    outputs = [((n_sample, ub_i, lb_i), mean, mean_score) for \
-                   n_sample, ub_i, lb_i, mean, mean_score in \
-                    zip(
-                        n_samples.tolist(),
-                        ub.tolist(), 
-                        lb.tolist(), 
-                        means.tolist(), 
-                        mean_scores.tolist()
-                    )]
-    return outputs
+        print(f"phi ub={stats[phi_ub].round(2)}")
+        print(f"phi lb={stats[phi_lb].round(2)}")
+        print(f"phi m={stats[phi_m].round(2)}")
+        print(f"psi ub={stats[psi_ub].round(2)}")
+        print(f"psi lb={stats[psi_lb].round(2)}")
+        print(f"psi v={stats[psi_v].round(2)}")
+        print(f"psi m={stats[psi_m].round(2)}")
+        print(f"n_samples={stats[n]}")
+    # print(f"Did {stats[n].sum()} calls (max={max_iter*len(rules)})")
+    return stats[[phi_m,psi_m]].T
+    # return [(stats[:,i], float(stats[phi_m,i]), float(stats[psi_m,i])) for i in range(n_arms)]

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="actualcauses",
-    version="0.2",
+    version="1.0.0",
     packages=find_packages(),
     install_requires=[
         "tqdm>=4.62.3",
