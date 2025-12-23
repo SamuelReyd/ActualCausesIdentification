@@ -2,7 +2,7 @@
 
 
 ## Description
-This package is designed to identify actual causes in various systems. It implements three algorithms presented in the paper [Searching for actual causes: approximate algorithms with adjustable precision](link_to_paper). Identifying actual causes is crucial for explanability of autonomous and AI based systems.
+This package is designed to identify actual causes in various systems. It implements three algorithms presented in the paper [Searching for actual causes: approximate algorithms with adjustable precision](https://arxiv.org/abs/2507.07857). Identifying actual causes is crucial for explanability of autonomous and AI based systems.
 
 ## Features
 - **Beam Search Algorithm**: A modified version of beam search that uses an oracle and a heuristic function to identify actual causes following the HP-definition [1].
@@ -72,7 +72,17 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 ## Citation
 If you use this work for a scientific publication, please use the following citation:
 
-_Online version comming soon._
+Reyd, S., Diaconescu, A., & Dessalles, J. (2025). Searching for actual causes: Approximate algorithms with adjustable precision. ArXiv, abs/2507.07857.
+
+@misc{reyd2025searchingactualcausesapproximate,
+      title={Searching for actual causes: Approximate algorithms with adjustable precision}, 
+      author={Samuel Reyd and Ada Diaconescu and Jean-Louis Dessalles},
+      year={2025},
+      eprint={2507.07857},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2507.07857}, 
+}
 
 
 
