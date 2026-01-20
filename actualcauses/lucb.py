@@ -1,4 +1,4 @@
-import numpy as np, time, matplotlib.pyplot as plt
+import numpy as np, time
 from tqdm import tqdm
 
 from .mbs import beam_search, get_rules, show_rules, get_sets

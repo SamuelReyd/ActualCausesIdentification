@@ -2,24 +2,22 @@ from collections.abc import Iterable
 import time
 from .mbs import beam_search, show_rules
 from .isi import iterative_identification
-from .system_model import SystemModel
+from .system_model import SystemModel, SuzzyExampleSystemModel
 from typing import Any
 
 class SCM:
     def __init__(self, V:list[str], U:list[str], D:list[list], u:list,
-                 model:SystemModel, dag:list[list]=None, v:list=None, ):
+                 model:SystemModel, dag:list[list]=None, v:list=None):
         """
         SCM object that includes everything needed to execute the algorithms
             V: list of endogenous variables labels (the target must be the last variable)
             U: list of exogenous variables labels
             D: list of discrete domains for the variables in V (in the same order)
             u: context (values of U in the right order)
-            model (optional): a SystemModel object that must implement functions apply and evaluate_batch 
+            model: a SystemModel object that must implement __call__ and evaluate_batch 
             dag (optional): a list of lists where each element i is the set of causal parents of V[i].
             v (optional): a list of values for v. If none is provided, then F(u,[]) is used. 
                 Providing v can be useful for stochastic experiments.
-
-            args: V, U, D, u, dag
         """
         # Mandatory parameters
         self.V = V
@@ -80,3 +78,12 @@ class SCM:
     def show_indentification_result(self):
         print(f"Found {len(self.causes)} causes in {self.identification_time:.3f}s with {self.n_calls} model calls\n")
         show_rules(self.identification_output)
+
+suzzy_example_scm = SCM(
+    V=("ST", "BT", "SH", "BH", "BS"),
+    U=("st", "bs"),
+    D=(0,1),
+    u=(1,1),
+    model=SuzzyExampleSystemModel(),
+    dag={"ST":[], "BT":[], "SH":["ST"], "BH":["BT","SH"], "BS":["BH","SH"]}
+)

@@ -1,4 +1,4 @@
-from actualcauses_local.lucb import lucb
+from .lucb import lucb
 import numpy as np
 from collections import defaultdict
 
@@ -9,10 +9,38 @@ class SystemModel:
         self.phi = phi
 
     def __call__(self, u:list, e: list[tuple]) -> list:
+        # Compute a state of the system model given context u and intervention e
         raise NotImplementedError
 
-    def evaluate_batch(self, u, E):
-        raise NotImplementedError
+    def evaluate_batch(self, u, E, N=1):
+        # Compute the values of phi and psi for context u and N times for each intervention e in E
+        ret = []
+        for e in E:
+            for _ in range(N):
+                ret.append((
+                    self.phi(self(u,e)), self.psi(self(u,e))
+                ))
+        return ret
+
+
+class SuzzyExampleSystemModel(SystemModel):
+    # A model for the rock throwing example, with variables ST, BT, SH, BH, BS
+    def __init__(self):
+        super().__init__(
+            phi=lambda s: s[-1], 
+            psi=lambda s: sum(s)
+        )
+
+    def __call__(self, u:list, e: list[tuple]) -> list:
+        st, bt = u
+        e = dict(e)
+        ST = e.get("ST", st)
+        BT = e.get("BT", bt)
+        SH = e.get("SH", ST)
+        BH = e.get("BH", int(BT and not SH))
+        BS = int(SH or BH)
+        self.n_calls += 1
+        return [ST,BT,SH,BH,BS]
 
 class BaseNumpyModel(SystemModel):
     sub_N = 100_000 # used to chunk large batches
