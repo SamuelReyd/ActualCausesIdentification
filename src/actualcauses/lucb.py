@@ -1,7 +1,5 @@
-import numpy as np, time
+import numpy as np
 from tqdm import tqdm
-
-from .mbs import beam_search, get_rules, show_rules, get_sets
 
 # This file is inspired by https://github.com/marcotcr/anchor
 
@@ -99,14 +97,12 @@ def lucb(evaluator, rules, beam_size, a=.05, beam_eps=.1, cause_eps=.01, non_cau
     stats[phi_ub] = 1.0
     stats[psi_ub] = 1.0
     
-    beta_phi = 0
-    beta_psi = 0
-    
     # Utils function
     def action_arms(arms, bs=batch_size):
         # Compute values
         E = [rules[arm] for arm in arms]
-        if not len(E): return
+        if not len(E): 
+            return
         values_batchs = evaluator(E, bs)
         values_batchs = values_batchs.reshape(len(E), bs, -1)
         for arm, values_batch in zip(arms, values_batchs):
@@ -192,14 +188,20 @@ def lucb(evaluator, rules, beam_size, a=.05, beam_eps=.1, cause_eps=.01, non_cau
             update_bound(stats, dlow_bernoulli,        phi_lb, non_cause_overlap, phi_m, None,  n, beta)
             
             # Compute remaining overlap
-            if not beam_overlap.size or not nonbeam_overlap.size: beam_bound = 0
-            else: beam_bound = stats[psi_ub,beam_overlap].max() - stats[psi_lb,nonbeam_overlap].min()
+            if not beam_overlap.size or not nonbeam_overlap.size: 
+                beam_bound = 0
+            else: 
+                beam_bound = stats[psi_ub,beam_overlap].max() - stats[psi_lb,nonbeam_overlap].min()
                 
-            if not cause_overlap.size: cause_bound = 0
-            else: cause_bound = stats[phi_ub,cause_overlap].max() - a
+            if not cause_overlap.size: 
+                cause_bound = 0
+            else: 
+                cause_bound = stats[phi_ub,cause_overlap].max() - a
                 
-            if not non_cause_overlap.size: non_cause_bound = 0
-            else: non_cause_bound = a - stats[phi_lb,non_cause_overlap].min()
+            if not non_cause_overlap.size: 
+                non_cause_bound = 0
+            else: 
+                non_cause_bound = a - stats[phi_lb,non_cause_overlap].min()
             
             # Stop condition
             if beam_bound <= beam_eps and cause_bound <= cause_eps and non_cause_bound <= non_cause_eps: 

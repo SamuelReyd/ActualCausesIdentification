@@ -1,4 +1,4 @@
-import numpy as np, bisect, time
+import numpy as time
 from tqdm import tqdm
 from itertools import count
 from collections import defaultdict
@@ -157,13 +157,17 @@ def split_rules(beam, cf_values, actual_values, epsilon):
     return causes, non_causes
 
 def check_early_stop(beam, early_stop, all_causes, max_time, init_time):
-    if not len(beam): return True
-    if early_stop and len(all_causes): return True
-    if max_time is not None and time.time()-init_time > max_time: return True
+    if not len(beam): 
+        return True
+    if early_stop and len(all_causes): 
+        return True
+    if max_time is not None and time.time()-init_time > max_time: 
+        return True
     return False
 
 def do_simulation(simulation, cache, beam):
-    if cache is None: return simulation(beam)
+    if cache is None: 
+        return simulation(beam)
     cached_results = []
     non_cached_beam = []
     for e in beam:
@@ -191,22 +195,29 @@ def beam_search(
     #  >= 3 -> adds all causes + tqdm for get_rules
     
     all_causes = []
-    if R is None: R = tuple()
+    if R is None: 
+        R = tuple()
     actual_values = dict(zip(V, v))
-    if I is not None: V, D, v = filter_instance(V,D, v, I)
+    if I is not None: 
+        V, D, v = filter_instance(V,D, v, I)
     # print(I, V)
-    if not minimality: full_interventions = []
+    if not minimality: 
+        full_interventions = []
     init_time = time.time()
     beam = None
-    if Cs is None: Cs = []
-    if max_steps == -1 or max_steps is None: iterator = count(start=1, step=1)
-    else: iterator = range(1,max_steps+1)
+    if Cs is None: 
+        Cs = []
+    if max_steps == -1 or max_steps is None: 
+        iterator = count(start=1, step=1)
+    else: 
+        iterator = range(1,max_steps+1)
 
     # if test_empty(simulation): iterator = range(0,-1)
 
     for t in tqdm(iterator, disable=(verbose!=1)):
         # Render the step
-        if verbose >= 2: print(f"{f'Step {t}':=^30}")
+        if verbose >= 2: 
+            print(f"{f'Step {t}':=^30}")
             
         # Create the rules for step t base on the ones from t-1, we use the initial ones if t==1
         beam = get_rules(beam, V, D, v, actual_values, 
@@ -218,7 +229,8 @@ def beam_search(
             break
             
         # Render how many nodes will be evaluated
-        if verbose >= 2: print(f"Evaluating {len(beam)} rules")
+        if verbose >= 2: 
+            print(f"Evaluating {len(beam)} rules")
 
         # Evaluate the rules using the simulation 
         cf_values = do_simulation(simulation, cache, beam)
@@ -255,5 +267,6 @@ def beam_search(
     # Render final result
     if verbose:
         print(f"----> Found {len(all_causes)} causes.")
-    if not minimality: return all_causes, full_interventions
+    if not minimality: 
+        return all_causes, full_interventions
     return all_causes

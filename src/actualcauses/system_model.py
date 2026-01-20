@@ -48,8 +48,10 @@ class BaseNumpyModel(SystemModel):
         SystemModel.__init__(self, phi=phi, psi=psi)
         if dtype is None: self.dtype = bool
         else: self.dtype = dtype
-        if self.phi is None: self.phi = lambda s: s[:,-1].astype(int)
-        if self.psi is None: self.psi = lambda s: np.sum(s, axis=1) - 1
+        if self.phi is None: 
+            self.phi = lambda s: s[:,-1].astype(int)
+        if self.psi is None: 
+            self.psi = lambda s: np.sum(s, axis=1) - 1
         self.dim2id = dict(zip(V, range(len(V))))
         self.reset_state()
 
@@ -112,7 +114,8 @@ class NoisyNumpyModel(BaseNumpyModel):
                 for h_slice, value in self.Es[var]:
                     self.S[h_slice,self.dim2id[var]] = value
         else: 
-            if self.t > 0 and np.random.rand() < self.t: F_value = 1 - F_value
+            if self.t > 0 and np.random.rand() < self.t: 
+                F_value = 1 - F_value
             self.S[:,self.dim2id[var]] = self.Es.get(var, F_value)
 
 class AverageNumpyModel(NoisyNumpyModel):
@@ -130,5 +133,6 @@ class LUCBNumpyModel(NoisyNumpyModel):
         self.lucb_params = lucb_params
 
     def evaluate_batch(self, u, E, N=1):
-        evaluator = lambda E, N: NoisyNumpyModel.evaluate_batch(self, u, E, N)
+        def evaluator(E, N):
+            return NoisyNumpyModel.evaluate_batch(self, u, E, N)
         return lucb(evaluator, E, **self.lucb_params)

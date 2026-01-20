@@ -1,10 +1,8 @@
-import numpy as np, time
-from tqdm import tqdm
 from collections import deque
 from itertools import combinations, islice
 from collections.abc import Iterable, Iterator
 
-from .mbs import show_rules, get_initial_rules, get_rules, beam_search, get_rule_desc, is_minimal, remove_duplicates, minimal_merge
+from .mbs import beam_search, remove_duplicates, minimal_merge
 
 
 def merge_set_lists(list1:list[set], list2:list[set])->list[set]:
@@ -99,30 +97,33 @@ def iterative_identification(v, D, simulation, V, dag, PA_T, cache_size=-1, **ka
     K_0 = (set(PA_T), set(), set(), dict(), set())
     queue = deque([K_0])
     cache = dict() if cache_size >= 0 else None
-    actual_values = dict(zip(V,v))
     memory = []
     ret = []
     Cs = []
     while queue:
         # Set up node
-        if verbose: print(f"{len(queue)=}")
+        if verbose: 
+            print(f"{len(queue)=}")
         K = queue.popleft()
         while cache and len(cache) > cache_size:
             item = next(iter(cache))
             del cache[item]
         if cache_size >=0: 
             cache = dict(islice(cache.items(), cache_size))
-        if verbose: print(f"{K=}")
+        if verbose: 
+            print(f"{K=}")
         
         # Evaluate node
         E, full_E = make_beam_search(v, D, V, K, minimality, cache=cache, Cs=Cs, **kargs)
         
         Cs = merge_set_lists([e[3] for e in E], Cs)
-        if early_stop and E: return E
+        if early_stop and E: 
+            return E
         ret = minimal_merge(E, ret)
 
         # Expand node
-        if not minimality: E = full_E
+        if not minimality: 
+            E = full_E
         for e in E:
             C, W = e[3], e[4]
             e = dict(e[0])
@@ -130,9 +131,11 @@ def iterative_identification(v, D, simulation, V, dag, PA_T, cache_size=-1, **ka
                 K = expand(C,dict(e),W,S, PA)
                 if not len(K[0]) or not check_memory(memory, K): 
                     continue # no free variable for interventions or K already tested
-                if verbose: print(f"  {C=} -> {S=} -> {K=}")
+                if verbose: 
+                    print(f"  {C=} -> {S=} -> {K=}")
                 queue.append(K)
                 memory.append(K)
         
-        if verbose: print("==========")
+        if verbose: 
+            print("==========")
     return ret
