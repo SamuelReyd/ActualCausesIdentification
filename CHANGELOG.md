@@ -10,7 +10,7 @@ The format is based on **Keep a Changelog**, and this project follows **Semantic
 - 
 
 ### Changed
-- 
+- Update README for v1.0.0 API / SCM + SystemModel changes
 
 ### Fixed
 - 

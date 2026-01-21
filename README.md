@@ -1,89 +1,168 @@
-# ActualCausesIdentification
-
+# Actual Causes Identification — actualcauses
 
 ## Description
-This package is designed to identify actual causes in various systems. It implements three algorithms presented in the paper [Searching for actual causes: approximate algorithms with adjustable precision](https://arxiv.org/abs/2507.07857). Identifying actual causes is crucial for explanability of autonomous and AI based systems.
 
-## Features
-- **Beam Search Algorithm**: A modified version of beam search that uses an oracle and a heuristic function to identify actual causes following the HP-definition [1].
-- **Iterative Subinstance Algorithm**: Utilizes the Directed Acyclic Graph (DAG) to iteratively search for causes among direct causal parents of the target consequence and through the DAG.
-- **Lower Upper Confidence Bounds (LUCB) Algorithm**: Handles the sampling of stochastic oracle functions during beam search, inspired by exploration-only armed bandit methods [2].
+**actualcauses** is a Python package to identify *actual causes* (Halpern–Pearl style) in deterministic or stochastic systems.  
+It implements approximate algorithms with adjustable precision introduced in the paper:
+
+> *Searching for actual causes: approximate algorithms with adjustable precision* (Reyd, Diaconescu, Dessalles).  
+> Preprint: arXiv:2507.07857
+
+The package is designed for explainability and causal analysis of autonomous / AI-based systems: given a system model, a context, and a target consequence, it searches for exact or approximate actual causes.
+
+---
 
 ## Installation
-To install the package, use the following command:
-```sh
+
+```bash
 pip install actualcauses
 ```
 
-## Usage
-
-### Importing the Package
-```python
-from actualcauses import find_causes
+For local development:
+```bash
+git clone https://github.com/SamuelReyd/ActualCausesIdentification
+cd ActualCausesIdentification
+python -m pip install -e ".[dev]"
 ```
 
-### Example Usage
+---
+
+## Core concepts (v1.0.0)
+### `SCM`
+
+An SCM object represents a Structural Causal Model:
+
+- V: endogenous variables (names)
+- U: exogenous variables (names)
+- D: variable domains
+- u: a context (values for exogenous variables)
+- dag: optional causal graph (for algorithms that exploit structure)
+- model: a system model (see [`SystemModel`](src/system_model.py) class) used to evaluate interventions
+
+Once created, you call:
+
 ```python
-# Define variables, actual values, and domains
-V = ("A", "B", "C") # Variables
-v = (1, 1, 0) # Actual values
-D = [(0,1), (0,1), (0,1)] # Domains
-
-# Define the target predicate
-target = lambda x: x[0] and x[2]
-
-# Define the simulation function (oracle and heuristic functions)
-def simulation(interventions):
-    # Input: the list of interventions to evaluate
-    # Output: (counterfactual state, oracle value, heuristic value) for each intervention
-    ret = []
-    for intervention in interventions: # Each intervention is a list of variable ID / value pair
-        # Compute the variable values in the counterfactual world
-        ref = dict(intervention)
-        A = ref.get(0, 1)
-        B = ref.get(1, 1)
-        C = ref.get(2, (not A and B) or (A and not B))
-        oracle = A and C
-        heuristic = A + B + C
-        ret.append(([A, B, C], oracle, heuristic))
-    return ret
-
-# Find causes
-causes = find_causes(v, D, simulation, V)
-
-# Display the causes
-show_rules(causes, V)
+scm.find_causes(...)
+scm.show_identification_result()
 ```
 
-Output: `C={'A': '0'}, W={}, output=0, score=2.000`
+### System models (`SystemModel`, `BaseNumpyModel`, …)
 
-The cause is A with no contingency set. The function also show the values of the oracle (output) and the heuristic (score).
+A system model defines how the system responds to interventions.
 
+For simple Python models, subclass `SystemModel` and implement __call__(u, e).
+
+For accelerated / vectorized evaluation, subclass `BaseNumpyModel` (and optionally its stochastic variants).
+
+---
+## Quickstart (Suzzy rock-throwing example)
+The package provides a ready-to-run example SCM:
+```python
+from actualcauses import suzzy_example_scm
+
+# Identify causes with two algorithms (Beam Search / ISI)
+suzzy_example_scm.find_causes(ISI=False, max_steps=5, beam_size=20, epsilon=0.05, early_stop=False, verbose=2)
+suzzy_example_scm.show_identification_result()
+
+suzzy_example_scm.find_causes(ISI=True,  max_steps=5, beam_size=20, epsilon=0.05, early_stop=False, verbose=2)
+suzzy_example_scm.show_identification_result()
+```
+
+A complete runnable version is in [examples/quickstart.py](examples/quickstart.py).
+
+See the [examples/](examples/) folder for additional scenarios and advanced usage.
+
+---
+## Minimal custom SCM example (deterministic)
+
+This mirrors [examples/custom_scm.py](examples/custom_scm.py) (forest fire scenario). The important part is implementing a `SystemModel` and passing it to `SCM`.
+
+```python
+from actualcauses import SCM, SystemModel
+
+class ForestFireModel(SystemModel):
+    def __init__(self, disjunctive=True):
+        super().__init__(
+            phi=lambda s: s[-1],  # consequence predicate (example: last variable)
+            psi=lambda s: sum(s), # heuristic used by search
+        )
+        self.disjunctive = disjunctive
+
+    def __call__(self, u, e):
+        md, l = u
+        e = dict(e)
+        MD = e.get("MD", md)
+        L  = e.get("L",  l)
+        if self.disjunctive:
+            FF = e.get("FF", int(L or MD))
+        else:
+            FF = e.get("FF", int(L and MD))
+        self.n_calls += 1
+        return [MD, L, FF]
+
+scm = SCM(
+    V=("MD", "L", "FF"),
+    U=("md", "l"),
+    D=(0, 1),
+    u=(1, 1),
+    model=ForestFireModel(disjunctive=True),
+    dag={"MD": [], "L": [], "FF": ["MD", "L"]},
+)
+
+scm.find_causes()
+scm.show_identification_result()
+```
+
+---
+## Algorithms (high level)
+
+The package provides:
+
+- Beam-search style identification for (approximate) actual causes.
+
+- ISI (Iterative Subinstance Identification) that can exploit a DAG to restrict search to relevant ancestors.
+
+- LUCB-based estimation for stochastic models, to allocate samples adaptively.
+
+Exact knobs/parameters are exposed via SCM.find_causes(...). Notable usefull parameters include `beam_size` (integer), `ISI` (boolean), `max_steps`(integer), and `early_stop` (boolean). Algorithm have 3 level of verbosity (accessible via `verbose=...`).
+
+--- 
+
+## Examples
+
+The [examples/](examples/) folder contains scripts intended to be read and modified:
+
+- [quickstart.py](examples/quickstart.py) — Minimal end-to-end run using suzzy_example_scm.
+- [custom_scm.py](examples/custom_scm.py) — Implement a custom basic SCM and identify actual causes.
+- [custom_heuristic.py](examples/custom_heuristic.py) — Use different heuristics (psi) with a fixed system model and SCM.
+- [vectorized_system_model.py](examples/vectorized_system_model.py) — Use BaseNumpyModel to accelerate identification by vectorizing intervention evaluation.
+- [stochastic_system_model.py](examples/stochastic_system_model.py) — Stochastic evaluation with a naive average estimator and the LUCB estimator.
+
+Run any example from the repository root, e.g.:
+```bash
+python examples/quickstart.py
+```
+
+--- 
 ## License
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
 
-## References
+MIT License. See [LICENSE](LICENSE).
 
-
-[1]: Joseph Y. Halpern. A modification of the Halpern-Pearl definition of causality. In Proceedings of the 24th International Conference on Artificial Intelligence, IJCAI’15, pages 3022– 3033. AAAI Press, 2015.
-
-[2]: Emilie Kaufmann and Shivaram Kalyanakrishnan. Information Complexity in Bandit Subset Selection. In Proceedings of the 26th Annual Conference on Learning Theory, pages 228–251. PMLR, June 2013.
-
+---
 ## Citation
-If you use this work for a scientific publication, please use the following citation:
 
-Reyd, S., Diaconescu, A., & Dessalles, J. (2025). Searching for actual causes: Approximate algorithms with adjustable precision. ArXiv, abs/2507.07857.
+If you use this software in academic work, please cite:
 
+> Reyd, S., Diaconescu, A., & Dessalles, J. (2025). Searching for actual causes: Approximate algorithms with adjustable precision. arXiv:2507.07857.
+
+```bibtex
 @misc{reyd2025searchingactualcausesapproximate,
-      title={Searching for actual causes: Approximate algorithms with adjustable precision}, 
-      author={Samuel Reyd and Ada Diaconescu and Jean-Louis Dessalles},
-      year={2025},
-      eprint={2507.07857},
-      archivePrefix={arXiv},
-      primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2507.07857}, 
+  title        = {Searching for actual causes: Approximate algorithms with adjustable precision},
+  author       = {Samuel Reyd and Ada Diaconescu and Jean-Louis Dessalles},
+  year         = {2025},
+  eprint       = {2507.07857},
+  archivePrefix= {arXiv},
+  primaryClass = {cs.AI},
+  url          = {https://arxiv.org/abs/2507.07857}
 }
-
-
-
-
+```
