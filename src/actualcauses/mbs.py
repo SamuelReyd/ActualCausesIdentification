@@ -1,4 +1,4 @@
-import numpy as time
+import time
 from tqdm import tqdm
 from itertools import count
 from collections import defaultdict

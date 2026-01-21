@@ -1,5 +1,6 @@
 import numpy as np
 from tqdm import tqdm
+import random
 
 # This file is inspired by https://github.com/marcotcr/anchor
 
@@ -86,8 +87,11 @@ def update_bound(stats, fnt, bound_id, arm_ids, mean_id, variance_id, n_id, beta
 
 
 def lucb(evaluator, rules, beam_size, a=.05, beam_eps=.1, cause_eps=.01, non_cause_eps=.01, 
-         max_iter=200, verbose=0, batch_size=10, init_batch_size=20, lucb_info=None, delta=.1):
+         max_iter=200, verbose=0, batch_size=10, init_batch_size=20, lucb_info=None, delta=.1, seed=None):
 
+    if seed is not None:
+        np.random.seed(seed)
+        random.seed(seed)
     init_batch_size = max(1, init_batch_size)
     n_arms = len(rules) # Doing armed bandits with the rules to evaluate
 

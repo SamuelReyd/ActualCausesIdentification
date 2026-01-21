@@ -1,5 +1,6 @@
 from .lucb import lucb
 import numpy as np
+import random
 from collections import defaultdict
 
 class SystemModel:
@@ -100,36 +101,48 @@ class BaseNumpyModel(SystemModel):
         return np.vstack(out)
 
 class NoisyNumpyModel(BaseNumpyModel):
-    def __init__(self, V, t, phi=None, psi=None, dtype=None):
+    def __init__(self, V, t, phi=None, psi=None, dtype=None, rng=None):
         BaseNumpyModel.__init__(self, V, phi=phi, psi=psi, dtype=dtype)
         self.t = t
+        self.rng = rng
 
     def __setitem__(self, var, F_value):
         if self.batch: 
             self.S[:,self.dim2id[var]] = F_value
             if self.t > 0:
-                ids = np.random.rand(self.S.shape[0]) < self.t
+                if self.rng is None:
+                    ids = np.random.rand(self.S.shape[0]) < self.t
+                else:
+                    ids = self.rng.random (self.S.shape[0]) < self.t
                 self.S[ids,self.dim2id[var]] = 1 - self.S[ids,self.dim2id[var]]
             if var in self.Es:
                 for h_slice, value in self.Es[var]:
                     self.S[h_slice,self.dim2id[var]] = value
         else: 
-            if self.t > 0 and np.random.rand() < self.t: 
+            if self.rng is None:
+                rd = np.random.rand()
+            else:
+                rd = self.rng.random()
+            if self.t > 0 and rd < self.t: 
                 F_value = 1 - F_value
             self.S[:,self.dim2id[var]] = self.Es.get(var, F_value)
 
 class AverageNumpyModel(NoisyNumpyModel):
-    def __init__(self, V, t, N, phi=None, psi=None, dtype=None):
-        NoisyNumpyModel.__init__(self, V, t, phi=phi, psi=psi, dtype=dtype)
+    def __init__(self, V, t, N, seed=None, phi=None, psi=None, dtype=None, rng=None):
+        NoisyNumpyModel.__init__(self, V, t, phi=phi, psi=psi, dtype=dtype, rng=rng)
+        self.seed=seed
         self.N = N
 
     def evaluate_batch(self, u, E, N=1):
+        if self.seed is not None:
+            np.random.seed(self.seed)
+            random.seed(self.seed)
         out = super().evaluate_batch(u, E, self.N)
         return out.reshape(len(E), self.N, 2).mean(axis=1)
 
 class LUCBNumpyModel(NoisyNumpyModel):
-    def __init__(self, V, t, lucb_params, phi=None, psi=None, dtype=None):
-        NoisyNumpyModel.__init__(self, V, t, phi=phi, psi=psi, dtype=dtype)
+    def __init__(self, V, t, lucb_params, phi=None, psi=None, dtype=None, rng=None):
+        NoisyNumpyModel.__init__(self, V, t, phi=phi, psi=psi, dtype=dtype, rng=rng)
         self.lucb_params = lucb_params
 
     def evaluate_batch(self, u, E, N=1):

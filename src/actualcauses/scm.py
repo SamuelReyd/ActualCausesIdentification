@@ -75,7 +75,7 @@ class SCM:
         self.interventions = [elt[0] for elt in out]
         self.n_calls = self.model.n_calls
         
-    def show_indentification_result(self):
+    def show_identification_result(self):
         print(f"Found {len(self.causes)} causes in {self.identification_time:.3f}s with {self.n_calls} model calls\n")
         show_rules(self.identification_output)
 
