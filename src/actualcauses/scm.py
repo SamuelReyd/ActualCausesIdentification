@@ -86,10 +86,11 @@ class SCM:
         if save_path is not None:
             self.save(save_path)
         
-    def show_identification_result(self):
+    def show_identification_result(self, show_score=False):
         print(f"Found {len(self.causes)} causes in {self.identification_time:.3f}s with {self.n_calls} model calls\n")
-        show_rules(self.identification_output)
-
+        output = zip(self.interventions, self.phi_values, self.psi_values, self.causes, self.witnesses)
+        show_rules(output, show_score)
+        
     def save(self, path):
         save_keys = ("V", "U", "D", "target", "init_vars", 
                      "causes_hashable", "witnesses_hashable", "phi_values", "psi_values", 

@@ -56,12 +56,12 @@ def get_rule_desc(rule_values, show_score=False):
         return f"{C=}, {W=}, {output=}, {score=:.3f}"
     return f"{C=}, {W=}"
 
-def show_rule(rule_values):
-    print(get_rule_desc(rule_values, True))
-    
-def show_rules(rule_values):
+def show_rule(rule_values, show_score=False):
+    print(get_rule_desc(rule_values, show_score))
+
+def show_rules(rule_values, show_score=False):
     for r_values in rule_values:
-        show_rule(r_values)
+        show_rule(r_values, show_score)
 
 def is_minimal(e, E):
     return not any([other[3] < e[3] for other in E])
