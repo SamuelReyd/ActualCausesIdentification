@@ -217,7 +217,7 @@ def beam_search(
     for t in tqdm(iterator, disable=(verbose!=1)):
         # Render the step
         if verbose >= 2: 
-            print(f"{f'Step {t}':=^30}")
+            print(f"{f' Step {t} ':=^30}")
             
         # Create the rules for step t base on the ones from t-1, we use the initial ones if t==1
         beam = get_rules(beam, V, D, v, actual_values, 
@@ -267,6 +267,9 @@ def beam_search(
     # Render final result
     if verbose:
         print(f"----> Found {len(all_causes)} causes.")
+    if verbose > 1:
+        for cause in all_causes:
+            show_rule(cause)
     if not minimality: 
         return all_causes, full_interventions
     return all_causes
