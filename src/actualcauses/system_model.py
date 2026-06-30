@@ -9,7 +9,7 @@ class SystemModel:
         self.psi = psi
         self.phi = phi
 
-    def __call__(self, u:list, e: list[tuple]) -> list:
+    def __call__(self, u:list, e: list[tuple]=[]) -> list:
         # Compute a state of the system model given context u and intervention e
         raise NotImplementedError
 
@@ -32,7 +32,7 @@ class SuzzyExampleSystemModel(SystemModel):
             psi=lambda s: sum(s)
         )
 
-    def __call__(self, u:list, e: list[tuple]) -> list:
+    def __call__(self, u:list, e: list[tuple]=[]) -> list:
         st, bt = u
         e = dict(e)
         ST = e.get("ST", st)
@@ -73,7 +73,7 @@ class BaseNumpyModel(SystemModel):
         else: 
             self.S[:,self.dim2id[var]] = self.Es.get(var, F_value)
             
-    def __call__(self, u, e):
+    def __call__(self, u, e=[]):
         self.batch = False
         self.S = np.zeros((1, len(self.dim2id)), dtype=self.dtype)
         self.Es = dict(e)
